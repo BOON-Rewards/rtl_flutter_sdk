@@ -1,0 +1,170 @@
+# Source: sdks/release/flutter.yml in the monorepo. Exported by dev-cli.
+name: SDK release
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    name: SDK checks (Flutter ${{ matrix.flutter }})
+    runs-on: macos-26
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        flutter: ["3.47.0", "3.47.6"]
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          verify-signature: true
+      - name: Install pinned Flutter
+        env:
+          FLUTTER_VERSION: ${{ matrix.flutter }}
+        run: |
+          git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" config --jdk-dir "$JAVA_HOME"
+      - name: Install pinned Android SDK tools
+        run: |
+          export ANDROID_HOME="$RUNNER_TEMP/android-sdk"
+          archive="$RUNNER_TEMP/android-command-tools.zip"
+          curl --fail --location --retry 3 https://dl.google.com/android/repository/commandlinetools-mac-13114758_latest.zip --output "$archive"
+          printf '%s  %s\n' 5673201e6f3869f418eeed3b5cb6c4be7401502bd0aae1b12a29d164d647a54e "$archive" | shasum -a 256 --check
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          unzip -q "$archive" -d "$ANDROID_HOME/cmdline-tools"
+          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/19.0"
+          sdkmanager="$ANDROID_HOME/cmdline-tools/19.0/bin/sdkmanager"
+          { yes || true; } | "$sdkmanager" --sdk_root="$ANDROID_HOME" --licenses > /dev/null
+          "$sdkmanager" --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-36" "build-tools;35.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          flutter config --android-sdk "$ANDROID_HOME"
+      - name: Scan distribution for credentials
+        run: node .github/gitleaks.mjs .
+      - name: Validate release metadata
+        id: metadata
+        run: node .github/sdk-release.mjs metadata
+      - name: Check Dart and both native adapters against matching source snapshots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/sdk-release.mjs check
+  android-integration:
+    name: Android native WebView integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          verify-signature: true
+      - name: Install pinned Flutter
+        run: |
+          git clone --depth 1 --branch 3.47.6 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" config --jdk-dir "$JAVA_HOME"
+      - name: Start Android emulator
+        run: |
+          tools="$ANDROID_HOME/cmdline-tools/latest/bin"
+          { yes || true; } | "$tools/sdkmanager" --licenses > /dev/null
+          "$tools/sdkmanager" --install "platform-tools" "platforms;android-36" "build-tools;35.0.0" "ndk;28.2.13676358" "emulator" "system-images;android-35;google_apis;x86_64"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          export PATH="$ANDROID_HOME/platform-tools:$PATH"
+          flutter config --android-sdk "$ANDROID_HOME"
+          echo no | "$tools/avdmanager" create avd --name rtl_ci --package "system-images;android-35;google_apis;x86_64"
+          sudo chmod a+rw /dev/kvm
+          "$ANDROID_HOME/emulator/emulator" -avd rtl_ci -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          for attempt in $(seq 1 120); do
+            if [ "$(adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
+              adb -s emulator-5554 shell input keyevent 82
+              exit 0
+            fi
+            sleep 5
+          done
+          cat "$RUNNER_TEMP/emulator.log"
+          exit 1
+      - name: Scan distribution for credentials
+        run: node .github/gitleaks.mjs .
+      - name: Exercise real Android view readiness, renewal, replacement, and cancellation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANDROID_SERIAL: emulator-5554
+        run: node .github/sdk-release.mjs integration-android
+  publish:
+    name: Publish SDK
+    needs: [check, android-integration]
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: macos-26
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      packages: read
+    concurrency:
+      group: sdk-release-${{ needs.check.outputs.version }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "17"
+          verify-signature: true
+      - name: Install pinned Flutter
+        run: |
+          git clone --depth 1 --branch 3.47.6 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" config --jdk-dir "$JAVA_HOME"
+      - name: Install pinned Android SDK tools
+        run: |
+          export ANDROID_HOME="$RUNNER_TEMP/android-sdk"
+          archive="$RUNNER_TEMP/android-command-tools.zip"
+          curl --fail --location --retry 3 https://dl.google.com/android/repository/commandlinetools-mac-13114758_latest.zip --output "$archive"
+          printf '%s  %s\n' 5673201e6f3869f418eeed3b5cb6c4be7401502bd0aae1b12a29d164d647a54e "$archive" | shasum -a 256 --check
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          unzip -q "$archive" -d "$ANDROID_HOME/cmdline-tools"
+          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/19.0"
+          sdkmanager="$ANDROID_HOME/cmdline-tools/19.0/bin/sdkmanager"
+          { yes || true; } | "$sdkmanager" --sdk_root="$ANDROID_HOME" --licenses > /dev/null
+          "$sdkmanager" --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-36" "build-tools;35.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          flutter config --android-sdk "$ANDROID_HOME"
+      - name: Scan distribution for credentials
+        run: node .github/gitleaks.mjs .
+      # Native stable releases must exist before validating published dependencies.
+      - name: Build against published native SDKs, tag, and publish archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_USERNAME: ${{ github.actor }}
+        run: node .github/sdk-release.mjs publish
