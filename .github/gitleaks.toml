@@ -1,0 +1,12 @@
+title = "Public SDK secret scan"
+
+[extend]
+useDefault = true
+
+# Public examples must never contain signed demo credentials, even if a token
+# would be ignored by the default rule's example/entropy allowlists.
+[[rules]]
+id = "sdk-jwt"
+description = "Embedded JWT in a public SDK"
+regex = '''\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'''
+keywords = ["eyJ"]
