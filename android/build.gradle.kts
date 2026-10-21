@@ -1,5 +1,5 @@
 group = "com.affinaloyalty.rtlsdk.rtl_sdk"
-version = "3.1.0"
+version = "4.0.0"
 
 buildscript {
     repositories { google(); mavenCentral() }
@@ -21,9 +21,14 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
     sourceSets.getByName("main").java.srcDirs("src/main/kotlin")
     testOptions { unitTests.isReturnDefaultValues = true }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
 }
 
 dependencies {
@@ -39,7 +44,7 @@ dependencies {
         api(project(":core"))
         implementation(project(":hyperlocal-offers"))
     } else {
-        api("com.affinaloyalty:rtl-sdk-core:3.1.0")
-        implementation("com.affinaloyalty:rtl-sdk-location:3.1.0")
+        api("com.affinaloyalty:rtl-sdk-core:4.0.0")
+        implementation("com.affinaloyalty:rtl-sdk-location:4.0.0")
     }
 }
