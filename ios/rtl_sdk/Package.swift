@@ -5,7 +5,7 @@ import PackageDescription
 // Only development/CI overrides this dependency; exported consumers use the exact tag.
 let nativeDependency: Package.Dependency = ProcessInfo.processInfo.environment["RTL_IOS_SDK_PATH"]
     .flatMap { $0.isEmpty ? nil : .package(name: "rtl_ios_sdk", path: $0) }
-    ?? .package(url: "https://github.com/BOON-Rewards/rtl_ios_sdk.git", exact: "4.0.0")
+    ?? .package(url: "https://github.com/BOON-Rewards/rtl_ios_sdk.git", exact: "4.1.0")
 
 let package = Package(
     name: "rtl_sdk",
