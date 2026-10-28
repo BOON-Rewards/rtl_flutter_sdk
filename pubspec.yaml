@@ -1,6 +1,6 @@
 name: rtl_sdk
 description: Flutter wrapper for the existing RTL native iOS and Android SDKs.
-version: 4.1.0
+version: 4.2.0
 repository: https://github.com/BOON-Rewards/rtl_flutter_sdk
 publish_to: none
 
