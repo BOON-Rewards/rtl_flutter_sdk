@@ -88,11 +88,11 @@ void main() {
       expect(result.success, false);
       expect(result.errorCode, 'authentication_failed');
       expect(
-        await sdk.handleDeepLink('host-app://rtl-sdk/open?rtlEventId=event'),
+        await sdk.handleDeepLink('host-app://rtl-callback/open?rtlEventId=event'),
         false,
       );
       expect(commands.last.arguments, {
-        'url': 'host-app://rtl-sdk/open?rtlEventId=event',
+        'url': 'host-app://rtl-callback/open?rtlEventId=event',
       });
       expect(await sdk.hasLocationPermission(), true);
       await sdk.enableLocationFeatures();
