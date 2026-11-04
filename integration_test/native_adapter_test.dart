@@ -19,6 +19,9 @@ void main() {
     var readyCount = 0;
     var tokenRequests = 0;
     final seen = <String>[];
+    final handoffs = <Map<String, String>>[];
+    final completions = <Map<String, dynamic>>[];
+    final loaded = <Uri>[];
     final loading = <bool>[];
     final subscriptions = [
       sdk.ready.listen((_) => readyCount++),
@@ -30,9 +33,16 @@ void main() {
         request.response.write(jsonEncode({'expireDocument': expireDocument}));
       } else if (request.uri.path == '/seen') {
         seen.add(request.uri.queryParameters['jwt']!);
+        handoffs.add(request.uri.queryParameters);
+      } else if (request.uri.path == '/completed') {
+        completions.add(
+          jsonDecode(request.uri.queryParameters['message']!)
+              as Map<String, dynamic>,
+        );
       } else if (request.uri.path == '/favicon.ico') {
         request.response.statusCode = HttpStatus.noContent;
       } else {
+        loaded.add(request.uri);
         request.response.headers.contentType = ContentType.html;
         request.response.write(experienceHtml(++documents));
       }
@@ -94,6 +104,107 @@ void main() {
       await until(() => seen.contains('fixture-4'));
       expect(seen, isNot(contains('obsolete')));
 
+      for (final url in [
+        'unrelated://rtl-callback/open',
+        'rtl-host://other/open',
+        'rtl-host://rtl-callback/unknown',
+        'rtl-host://rtl-callback/open/extra',
+        'rtl-host://user@rtl-callback/open',
+        'rtl-host://rtl-callback:123/open',
+      ]) {
+        expect(await sdk.handleDeepLink(url), false, reason: url);
+      }
+      for (final parameters in <Map<String, String>>[
+        {},
+        {'rtlEventId': 'event-1'},
+        {'rtlRedirectUrl': '$baseUrl/offers'},
+        {'rtlEventId': 'event-1', 'rtlRedirectUrl': '$baseUrl/offers'},
+        {'rtlEventId': 'event+1', 'rtlRedirectUrl': ' '},
+        {'rtlRedirectUrl': '$baseUrl/offers?label=two words&code=a+b'},
+      ]) {
+        final before = readyCount;
+        final url = Uri(
+          scheme: 'rtl-host',
+          host: 'rtl-callback',
+          path: '/open',
+          queryParameters: parameters,
+        );
+        expect(await sdk.handleDeepLink(url.toString()), true);
+        await until(() => readyCount == before + 1);
+        await until(() => seen.contains('fixture-$tokenRequests'));
+        final redirect = parameters['rtlRedirectUrl'];
+        final hasRedirect = redirect != null && redirect.trim().isNotEmpty;
+        expect(handoffs.last['rtlRedirectUrl'], hasRedirect ? redirect : null);
+        expect(
+          handoffs.last['rtlEventId'],
+          hasRedirect ? null : parameters['rtlEventId'],
+        );
+      }
+      final readyBeforeCallbacks = readyCount;
+      for (final path in ['', '/callback']) {
+        final count = completions.length;
+        final url = Uri(
+          scheme: 'rtl-host',
+          host: 'rtl-callback',
+          path: path,
+          queryParameters: {
+            'redirectUrl': '$baseUrl/home?result=old&keep=yes&label=two+words',
+            'resume': 'message',
+            'completionType': 'openBanking',
+            'result': 'linked',
+            'providerToken': 'opaque+value',
+            'error_description': 'user denied',
+          },
+        );
+        expect(await sdk.handleDeepLink(url.toString()), true);
+        await until(() => completions.length == count + 1);
+        expect(completions.last['completionType'], 'openBanking');
+        expect(completions.last['data'], {
+          'keep': 'yes',
+          'label': 'two words',
+          'result': 'linked',
+          'providerToken': 'opaque+value',
+          'error_description': 'user denied',
+        });
+        expect(readyCount, readyBeforeCallbacks);
+      }
+      final loadedBeforeInvalidCallback = loaded.length;
+      final invalidCallback = Uri(
+        scheme: 'rtl-host',
+        host: 'rtl-callback',
+        path: '/callback',
+        queryParameters: {'redirectUrl': 'https://other.example/home'},
+      );
+      expect(await sdk.handleDeepLink(invalidCallback.toString()), true);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(loaded.length, loadedBeforeInvalidCallback);
+      expect(completions.length, 2);
+
+      for (final path in ['', '/callback']) {
+        final before = readyCount;
+        final url = Uri(
+          scheme: 'rtl-host',
+          host: 'rtl-callback',
+          path: path,
+          queryParameters: {
+            'redirectUrl': '$baseUrl/home?result=old&keep=yes&label=two+words',
+            'result': 'linked',
+            'providerToken': 'opaque+value',
+            'error_description': 'user denied',
+          },
+        );
+        expect(await sdk.handleDeepLink(url.toString()), true);
+        await until(() => readyCount == before + 1);
+        expect(loaded.last.path, '/home');
+        expect(loaded.last.queryParameters, {
+          'keep': 'yes',
+          'label': 'two words',
+          'result': 'linked',
+          'providerToken': 'opaque+value',
+          'error_description': 'user denied',
+        });
+      }
+
       await initialize(() => throw StateError('backend unavailable'));
       expect((await sdk.presentExperience()).errorCode, 'token_unavailable');
       expect(await sdk.hasLocationPermission(), false);
@@ -127,8 +238,9 @@ function send(type) {
 const attach = setInterval(() => {
   if (!send('appReady')) return;
   clearInterval(attach);
-  const jwt = new URLSearchParams(location.hash.slice(1)).get('token');
-  fetch('/seen?jwt=' + encodeURIComponent(jwt));
+  const target = new URLSearchParams(location.hash.slice(1));
+  target.set('jwt', target.get('token'));
+  fetch('/seen?' + target.toString());
   const poll = setInterval(async () => {
     const state = await (await fetch('/state')).json();
     if (state.expireDocument === $document) {
@@ -139,5 +251,8 @@ const attach = setInterval(() => {
 }, 50);
 window.addEventListener('message', event => {
   if (event.data?.type === 'logoutRequested') send('userLogout');
+  if (event.data?.type === 'overlayCompleted') {
+    fetch('/completed?message=' + encodeURIComponent(JSON.stringify(event.data)));
+  }
 });
 </script></body></html>''';
