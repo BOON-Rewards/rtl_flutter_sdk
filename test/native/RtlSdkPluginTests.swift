@@ -1,6 +1,7 @@
 import XCTest
 import Flutter
 import UIKit
+import RTLSdk
 @testable import rtl_sdk
 
 final class RunnerTests: XCTestCase {
@@ -73,6 +74,18 @@ final class RunnerTests: XCTestCase {
                 XCTAssertTrue(messenger.calls.contains("onDetached"))
             } else { await assertFreshToken(plugin, messenger); plugin.detach() }
         }
+    }
+
+    @MainActor func testHostContextAcceptsMapsAndRejectsInvalidValues() {
+        let (plugin, _) = makePlugin()
+        defer { plugin.detach() }
+        XCTAssertNil(command(plugin, "setHostContext", ["context": ["handlesBottomInset": true, "label": "value"]]))
+        XCTAssertEqual(RTLSdk.shared.hostContext["handlesBottomInset"] as? Bool, true)
+        XCTAssertEqual(RTLSdk.shared.hostContext["label"] as? String, "value")
+        XCTAssertEqual((command(plugin, "setHostContext", ["context": "invalid"]) as? FlutterError)?.code, "invalid_options")
+        XCTAssertEqual((command(plugin, "setHostContext", ["context": ["invalid": Double.nan]]) as? FlutterError)?.code, "invalid_options")
+        XCTAssertNil(command(plugin, "setHostContext", ["context": [:]]))
+        XCTAssertTrue(RTLSdk.shared.hostContext.isEmpty)
     }
 
     @MainActor func testEventsUseTheFlutterChannel() {

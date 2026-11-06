@@ -37,6 +37,7 @@ class RtlSdkPluginTest {
 
     @After fun tearDown() {
         sdk.locationExtension = null
+        sdk.setHostContext(emptyMap())
         Dispatchers.resetMain()
     }
 
@@ -70,6 +71,28 @@ class RtlSdkPluginTest {
         val result = RecordingResult()
         plugin.onMethodCall(MethodCall("hasLocationPermission", null), result)
         assertEquals(false, result.value)
+    }
+
+    @Test fun `host context accepts maps and rejects invalid values`() {
+        RtlSdkPlugin::class.java.getDeclaredField("initialized").apply {
+            isAccessible = true
+            setBoolean(plugin, true)
+        }
+        val context = mapOf("handlesBottomInset" to true, "label" to "value")
+        val configured = RecordingResult()
+        plugin.onMethodCall(MethodCall("setHostContext", mapOf("context" to context)), configured)
+        assertNull(configured.errorCode)
+        assertEquals(context, sdk.hostContext)
+        for (value in listOf("invalid", mapOf("invalid" to Double.NaN), mapOf(1 to true))) {
+            val invalid = RecordingResult()
+            plugin.onMethodCall(MethodCall("setHostContext", mapOf("context" to value)), invalid)
+            assertEquals("invalid_options", invalid.errorCode)
+            assertEquals(context, sdk.hostContext)
+        }
+        val cleared = RecordingResult()
+        plugin.onMethodCall(MethodCall("setHostContext", mapOf("context" to emptyMap<String, Any?>())), cleared)
+        assertNull(cleared.errorCode)
+        assertTrue(sdk.hostContext.isEmpty())
     }
 
     @Test fun `initialization without a host activity returns a bridge error`() {

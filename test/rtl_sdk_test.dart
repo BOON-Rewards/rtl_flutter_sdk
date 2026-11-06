@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -112,6 +113,36 @@ void main() {
       );
     },
   );
+
+  test('host context forwards a JSON snapshot and accepts an empty map', () async {
+    await initialize();
+    final nested = <String, Object?>{'label': 'before'};
+    await sdk.setHostContext({
+      'handlesBottomInset': true,
+      'options': [nested, 3, null],
+    });
+    nested['label'] = 'after';
+    expect(commands.last.method, 'setHostContext');
+    expect(commands.last.arguments, {
+      'context': {
+        'handlesBottomInset': true,
+        'options': [
+          {'label': 'before'}, 3, null,
+        ],
+      },
+    });
+    await sdk.setHostContext({});
+    expect(commands.last.arguments, {'context': <String, Object?>{}});
+  });
+
+  test('non-JSON host values never reach the native bridge', () async {
+    await initialize();
+    final before = commands.length;
+    for (final value in [Object(), double.nan, double.infinity, {1: true}]) {
+      await expectLater(sdk.setHostContext({'invalid': value}), throwsA(isA<JsonUnsupportedObjectError>()));
+    }
+    expect(commands.length, before);
+  });
 
   test('invalid arguments never cross the native bridge', () async {
     for (final url in [

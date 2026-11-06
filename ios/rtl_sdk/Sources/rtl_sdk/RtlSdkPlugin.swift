@@ -49,6 +49,21 @@ public final class RtlSdkPlugin: NSObject, FlutterPlugin, RTLSdkDelegate {
                                      externalChapterId: options["externalChapterId"] as? String)
             initialized = true
             result(nil)
+        case "setHostContext":
+            guard initialized else {
+                result(FlutterError(code: "not_initialized", message: "Initialize RTL first", details: nil))
+                return
+            }
+            guard let context = options["context"] as? [String: Any] else {
+                result(FlutterError(code: "invalid_options", message: "context must be a map", details: nil))
+                return
+            }
+            do {
+                try RTLSdk.shared.setHostContext(context)
+                result(nil)
+            } catch {
+                result(FlutterError(code: "invalid_options", message: "context must contain JSON-compatible values", details: nil))
+            }
         case "attachView":
             guard attached, initialized else {
                 result(FlutterError(code: "not_initialized", message: "Initialize RTL first", details: nil)); return
