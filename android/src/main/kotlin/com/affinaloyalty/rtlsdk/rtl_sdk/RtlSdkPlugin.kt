@@ -66,6 +66,19 @@ class RtlSdkPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAwa
                         initialized = true
                         result.success(null)
                     }
+                    "setHostContext" -> {
+                        if (!initialized) return@launch result.error("not_initialized", "Initialize RTL first", null)
+                        val context = call.argument<Any>("context")
+                        if (context !is Map<*, *>) return@launch result.error("invalid_options", "context must be a map", null)
+                        @Suppress("UNCHECKED_CAST")
+                        val values = context as Map<String, Any?>
+                        try {
+                            sdk.setHostContext(values)
+                            result.success(null)
+                        } catch (error: IllegalArgumentException) {
+                            result.error("invalid_options", error.message, null)
+                        }
+                    }
                     "attachView" -> {
                         check(initialized) { "Initialize RTL before mounting its view" }
                         checkNotNull(binding?.activity) { "No host Activity" }

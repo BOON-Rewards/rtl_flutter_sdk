@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
@@ -74,6 +75,13 @@ class RtlSdk {
       'urlScheme': urlScheme,
       'externalChapterId': ?externalChapterId,
     }, authTokenProvider);
+  }
+
+  /// Replace the host's JSON-compatible context before mounting RtlView.
+  /// Exposed as capabilities.hostContext; initialization resets it to empty.
+  Future<void> setHostContext(Map<String, Object?> context) async {
+    final snapshot = jsonDecode(jsonEncode(context)) as Map<String, dynamic>;
+    await _platform.invoke('setHostContext', {'context': snapshot});
   }
 
   Future<RtlExperienceResult> presentExperience({

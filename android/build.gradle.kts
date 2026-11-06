@@ -1,5 +1,5 @@
 group = "com.affinaloyalty.rtlsdk.rtl_sdk"
-version = "4.3.0"
+version = "4.4.0"
 
 buildscript {
     repositories { google(); mavenCentral() }
@@ -44,7 +44,7 @@ dependencies {
         api(project(":core"))
         implementation(project(":hyperlocal-offers"))
     } else {
-        api("com.affinaloyalty:rtl-sdk-core:4.3.0")
-        implementation("com.affinaloyalty:rtl-sdk-location:4.3.0")
+        api("com.affinaloyalty:rtl-sdk-core:4.4.0")
+        implementation("com.affinaloyalty:rtl-sdk-location:4.4.0")
     }
 }
